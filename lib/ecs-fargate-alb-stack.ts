@@ -47,6 +47,14 @@ export class EcsFargateAlbStack extends cdk.Stack {
       path: "/"
     })
 
+    const scaling = service.service.autoScaleTaskCount({
+      maxCapacity: 5,
+      minCapacity: 1
+    })
+
+    scaling.scaleOnCpuUtilization("CpuScaling", {targetUtilizationPercent: 70})
+    scaling.scaleOnMemoryUtilization("RamScaling", {targetUtilizationPercent: 70})
+
     const httpApi = new apigw2.HttpApi(this, "HttpApi", { apiName: `${PREFIX}-api` });
     
     httpApi.addRoutes({
