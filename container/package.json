@@ -5,7 +5,7 @@
     "node:build": "tsc --project tsconfig.json",
     "node:start": "node ./build/index.js",
     "docker:build": "docker build -t my-node-app .",
-    "docker:run": "docker run -p 80:80 my-node-app"
+    "docker:run": "docker run -p 3001:80 my-node-app"
   },
   "dependencies": {
     "express": "^4.19.2"
