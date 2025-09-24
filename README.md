@@ -1,57 +1,165 @@
 # AWS Sample: ECS + Fargate + Elastic Load Balance
 
-This is a project focus on showing the power of this three resources together.
+This sample demonstrates how to run a containerized Node.js application on Amazon ECS with AWS Fargate, behind an internal Application Load Balancer (ALB), and exposed publicly via an Amazon API Gateway HTTP API. It also configures target tracking auto scaling on CPU and memory utilization.
 
+## What this project creates
 
-### ECS: 
-Is a service fully managed of container orquestrations that helps to implant, manage and scale applications in containers in a efficienty way.
+- VPC `my-app-vpc` with 2 AZs.
+- ECS Cluster `my-app-cluster`.
+- Fargate Service `my-app-service` running the container image from Amazon ECR.
+- Internal ALB `my-app-alb` with health check path `/` and listener integrated to API Gateway.
+- Amazon API Gateway HTTP API `my-app-api` providing a public HTTPS endpoint to the service.
+- Auto scaling policies targeting 20% CPU and 20% memory (min 1, max 5 tasks, desired 2).
+- Amazon ECR repository `my-app-repository` to store the container image.
 
-### Fargate: 
+Constants used across stacks:
 
-A serverless computing resource with payment on as you go that allow us to focus less on the servermanagement and more in our applications.
+- `PREFIX = my-app`
+- ECR repository name: `my-app-repository`
+- Container port: `80`
 
+## Prerequisites
 
-### ELB(Elastic Load Balancing): 
-The application load balance distributes traffic of applications between server in a efficient way.
+- AWS account with credentials configured (e.g., `aws configure` or environment variables).
+- AWS CLI v2
+- Docker
+- Node.js 20+
+- AWS CDK v2 (globally or via `npx`)
 
-I run this example unsing a conteinirized image, if you wat to do the same just follow the next steps:
-
-must have been installed: `aws cli && docker`
+One-time per account/region (if not done yet):
 
 ```
-cd container/
+npx cdk bootstrap
+```
 
-## Compile the project
+## Project layout
 
+- Root CDK app entry: `bin/ecs-fargate-alb.ts`
+- Stacks:
+  - `lib/repository-stack.ts` (creates ECR repo)
+  - `lib/ecs-fargate-alb-stack.ts` (VPC, ECS, ALB, API, scaling)
+- Container app: `container/` (TypeScript Express server, listens on `:80`)
+
+## Build, push image, and deploy
+
+The Fargate service pulls `latest` from ECR. To avoid failed task starts, create the ECR repo first, push the image, then deploy the service.
+
+1) Install dependencies (root and container):
+
+```
+npm install
+cd container && npm install && cd ..
+```
+
+2) Deploy the ECR repository stack (creates `my-app-repository`):
+
+```
+npx cdk deploy RepositoryStack
+```
+
+3) Build the container app and push to ECR (replace `<account>` and `<region>`):
+
+```
+cd container
+
+# Compile TypeScript
 npm run node:build
 
-## Login into aws ECR to deploy our image
-
+# Authenticate Docker to ECR
 aws ecr get-login-password --region <region> \
   | docker login --username AWS --password-stdin <account>.dkr.ecr.<region>.amazonaws.com
 
-## Build and tag
-
+# Build and tag
 docker build -t my-app-repository:latest .
 docker tag my-app-repository:latest <account>.dkr.ecr.<region>.amazonaws.com/my-app-repository:latest
 
-## Push the image
-
+# Push
 docker push <account>.dkr.ecr.<region>.amazonaws.com/my-app-repository:latest
 
-## deploy it(change the profile if you need)
-
-cdk deploy --all --require-approval never
+cd ..
 ```
 
-After the deploy you can run a script in``ecs-fargate-alb/container/src/script.ts`` with your endpoint to put our scale configuration to work.
+4) Deploy the service stack (VPC, ECS, ALB, API Gateway):
 
-As i hit the 20% of CPU utilization i have my container deployed with another instance:
+```
+npx cdk deploy EcsFargateAlbStack
+```
 
-CPU:
-![imgs/cpuUtilization.jpeg]
+If you use a non-default AWS profile, append `--profile <your-profile>` to the CDK and AWS CLI commands.
 
-Auto Scale:
-![imgs/autoScale.jpeg]
-![imgs/autoScale2.jpeg]
+## Get the public endpoint
 
+This project creates an Amazon API Gateway HTTP API in front of an internal ALB. After deployment, retrieve the API endpoint:
+
+```
+aws apigatewayv2 get-apis --region <region> \
+  --query "Items[?Name=='my-app-api'].ApiEndpoint" --output text
+```
+
+You should see an endpoint like:
+
+```
+https://abc123.execute-api.<region>.amazonaws.com
+```
+
+## Generate load to see auto scaling
+
+The script at `container/src/script.ts` continuously fires concurrent GET requests to help you reach the scaling thresholds.
+
+1) Edit the target in `container/src/script.ts`:
+
+```
+const TARGET = "https://abc123.execute-api.<region>.amazonaws.com/"
+```
+
+2) Run the script (pick one):
+
+- Using ts-node from the repository root:
+
+```
+npx ts-node container/src/script.ts
+```
+
+- Or compile and run with Node.js:
+
+```
+cd container
+npm run node:build
+node build/script.js
+```
+
+When CPU or memory utilization reaches ~20%, ECS will scale out up to 5 tasks. Health checks use path `/`.
+
+## Evidence: CPU Utilization and Auto Scaling
+
+Below are screenshots captured during load generation using `container/src/script.ts`, demonstrating scaling behavior around the 20% CPU target and the resulting task count changes.
+
+- CPU Utilization
+
+![CPU Utilization](imgs/cpuUtilization.jpeg)
+
+- Auto Scaling (Scale Out Events)
+
+![Auto Scale](imgs/autoScale.jpeg)
+![Auto Scale 2](imgs/autoScale2.jpeg)
+
+## Clean up
+
+To destroy all stacks:
+
+```
+npx cdk destroy --all
+```
+
+Then manually delete the ECR repository or images if CloudFormation cannot delete a non-empty repository.
+
+## Troubleshooting
+
+- If tasks fail to start with `IMAGE_NOT_FOUND`, ensure you pushed `latest` to `my-app-repository` in the correct account/region before deploying the service.
+- The ALB is internal (`publicLoadBalancer: false`). External access must go through the API Gateway HTTP API endpoint.
+- Make sure Docker is logged in to ECR in the same region you are deploying.
+
+## Notes
+
+- Auto scaling targets 20% CPU and 20% memory: see `lib/ecs-fargate-alb-stack.ts`.
+- You can adjust names and capacity by changing `PREFIX` or scaling config in the stack files.
