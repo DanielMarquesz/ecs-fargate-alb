@@ -52,8 +52,8 @@ export class EcsFargateAlbStack extends cdk.Stack {
       minCapacity: 1
     })
 
-    scaling.scaleOnCpuUtilization("CpuScaling", {targetUtilizationPercent: 70})
-    scaling.scaleOnMemoryUtilization("RamScaling", {targetUtilizationPercent: 70})
+    scaling.scaleOnCpuUtilization("CpuScaling", {targetUtilizationPercent: 20})
+    scaling.scaleOnMemoryUtilization("RamScaling", {targetUtilizationPercent: 20})
 
     const httpApi = new apigw2.HttpApi(this, "HttpApi", { apiName: `${PREFIX}-api` });
     
