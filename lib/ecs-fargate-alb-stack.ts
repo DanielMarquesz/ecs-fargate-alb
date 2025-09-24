@@ -5,11 +5,12 @@ import * as ecs from "aws-cdk-lib/aws-ecs";
 import * as ec2 from "aws-cdk-lib/aws-ec2";
 import * as apigw2 from "aws-cdk-lib/aws-apigatewayv2";
 import { HttpAlbIntegration } from "aws-cdk-lib/aws-apigatewayv2-integrations";
+import * as ecr from "aws-cdk-lib/aws-ecr";
 
 export const PREFIX = 'my-app'
 
 export class EcsFargateAlbStack extends cdk.Stack {
-  constructor(scope: Construct, id: string, props?: cdk.StackProps) {
+  constructor(scope: Construct, id: string, ecrRepository: ecr.Repository ,props?: cdk.StackProps) {
     super(scope, id, props);
 
     const defaultVpc = new ec2.Vpc(this, "Vpc", {
@@ -24,7 +25,6 @@ export class EcsFargateAlbStack extends cdk.Stack {
       clusterName: `${PREFIX}-cluster`
     })
 
-
     const service = new ApplicationLoadBalancedFargateService(this, "Service", {
       serviceName: `${PREFIX}-service`,
       loadBalancerName: `${PREFIX}-alb`,
@@ -32,7 +32,7 @@ export class EcsFargateAlbStack extends cdk.Stack {
       memoryLimitMiB: 512,
       cpu: 256, //0.25
       taskImageOptions: {
-        image: ecs.ContainerImage.fromRegistry("public.ecr.aws/ecs-sample-image/amazon-ecs-sample:latest"),
+        image: ecs.ContainerImage.fromEcrRepository(ecrRepository),
         environment: {
           ENV_VAR_1: "value1",
           ENV_VAR_2: "value2",
